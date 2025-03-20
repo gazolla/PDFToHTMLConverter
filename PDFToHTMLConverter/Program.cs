@@ -1,22 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
-using iTextSharp.text.pdf;
-using iTextSharp.text.pdf.parser;
-using PdfiumViewer;
-using log4net;
-using log4net.Config;
+using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Canvas.Parser;
+using iText.Kernel.Pdf.Canvas.Parser.Listener;
+using iText.Kernel.Utils;
+using iText.IO.Image;
+using iText.Kernel.Geom;
+using iText.Kernel.Pdf.Xobject;
+using iText.Kernel.Pdf.Colorspace;
+using iText.Kernel.Pdf.Extgstate;
 
-[assembly: XmlConfigurator(Watch = true)]
 
 namespace GazApps
 {
     public class PDFToHTMLConverter
     {
-   
         public static void Main(string[] args)
         {
             if (args.Length != 1)
@@ -32,11 +33,23 @@ namespace GazApps
                 return;
             }
 
+            var files = Directory.GetFiles(folderPath, "*.pdf").OrderBy(f => f).ToList();
+
+            if (files.Count == 0)
+            {
+                Console.WriteLine("Nenhum arquivo PDF encontrado.");
+                return;
+            }
+
+            Console.WriteLine("Gerando arquivos HTML..... ");
             Directory.GetFiles(folderPath, "*.pdf")
                 .ToList()
                 .ForEach(ConvertToHtml);
 
-            Console.WriteLine("concluido");
+            Console.WriteLine("Gerando combinado..... ");
+            MergePdfFiles(folderPath);
+
+            Console.WriteLine("Concluído");
         }
 
         private static void ConvertToHtml(string pdfPath)
@@ -46,8 +59,8 @@ namespace GazApps
                 // Extrair texto
                 string text = ExtractTextFromPdf(pdfPath);
 
-                // Renderizar imagens
-                List<string> base64Images = RenderPagesToBase64(pdfPath);
+                // Renderizar imagens (captura as imagens contidas no PDF)
+                List<string> base64Images = ExtractImagesFromPdf(pdfPath);
 
                 // Construir HTML
                 StringBuilder html = new StringBuilder("<html><body>");
@@ -75,59 +88,85 @@ namespace GazApps
         private static string ExtractTextFromPdf(string pdfPath)
         {
             StringBuilder text = new StringBuilder();
+
             using (PdfReader reader = new PdfReader(pdfPath))
+            using (PdfDocument pdfDoc = new PdfDocument(reader))
             {
-                for (int i = 1; i <= reader.NumberOfPages; i++)
+                for (int i = 1; i <= pdfDoc.GetNumberOfPages(); i++)
                 {
-                    string pageText = PdfTextExtractor.GetTextFromPage(reader, i);
-                    text.Append(pageText);
+                    ITextExtractionStrategy strategy = new SimpleTextExtractionStrategy();
+                    string pageText = PdfTextExtractor.GetTextFromPage(pdfDoc.GetPage(i), strategy);
+                    text.Append(pageText).Append("\n");
                 }
             }
             return text.ToString();
         }
 
-        private static List<string> RenderPagesToBase64(string pdfPath)
+        private static List<string> ExtractImagesFromPdf(string pdfPath)
         {
             List<string> base64Images = new List<string>();
 
-            try
+            using (PdfReader reader = new PdfReader(pdfPath))
+            using (PdfDocument pdfDoc = new PdfDocument(reader))
             {
-                // Usamos PdfiumViewer para renderizar as páginas PDF como imagens
-                using (var document = PdfiumViewer.PdfDocument.Load(pdfPath))
+                for (int i = 1; i <= pdfDoc.GetNumberOfPages(); i++)
                 {
-                    // Para cada página no documento
-                    for (int i = 0; i < document.PageCount; i++)
-                    {
-                        // Definimos a resolução da imagem (dpi)
-                        float dpi = 150.0f;
+                    PdfPage page = pdfDoc.GetPage(i);
+                    var resources = page.GetResources();
+                    var xObjects = resources.GetResource(PdfName.XObject);
 
-                        // Renderizamos a página como um Bitmap
-                        using (var image = document.Render(i, dpi, dpi, PdfiumViewer.PdfRenderFlags.Annotations))
+                    if (xObjects != null)
+                    {
+                        foreach (var entry in xObjects.EntrySet())
                         {
-                            // Convertemos o bitmap para string base64
-                            string base64 = EncodeToBase64((Bitmap)image);
-                            base64Images.Add(base64);
+                            PdfStream stream = entry.Value as PdfStream;
+                            if (stream == null || !PdfName.Image.Equals(stream.GetAsName(PdfName.Subtype)))
+                                continue;
+
+                            byte[] imgBytes = stream.GetBytes();
+                            string base64Image = Convert.ToBase64String(imgBytes);
+                            base64Images.Add(base64Image);
                         }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Erro ao renderizar páginas: {ex.Message}");
-                // Se falhar a renderização, ao menos retornamos uma lista vazia
-                // para não quebrar a geração do HTML
             }
 
             return base64Images;
         }
 
-        private static string EncodeToBase64(Bitmap image)
+        public static void MergePdfFiles(string pdfPath)
         {
-            using (MemoryStream ms = new MemoryStream())
+            var files = Directory.GetFiles(pdfPath, "*.pdf").OrderBy(f => f).ToList();
+
+            if (files.Count == 0)
             {
-                image.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                return Convert.ToBase64String(ms.ToArray());
+                Console.WriteLine("Nenhum arquivo PDF encontrado.");
+                return;
             }
+
+            string outputFilePath = System.IO.Path.Combine(pdfPath, "Combinados.pdf");
+
+            if (File.Exists(outputFilePath))
+            {
+                File.Delete(outputFilePath);
+            }
+
+            using (var pdfWriter = new PdfWriter(outputFilePath))
+            using (var pdfDocument = new PdfDocument(pdfWriter))
+            {
+                var merger = new PdfMerger(pdfDocument);
+
+                foreach (var file in files)
+                {
+                    using (var pdfReader = new PdfReader(file))
+                    using (var sourcePdfDocument = new PdfDocument(pdfReader))
+                    {
+                        merger.Merge(sourcePdfDocument, 1, sourcePdfDocument.GetNumberOfPages());
+                    }
+                }
+            }
+
+            Console.WriteLine($"PDFs mesclados com sucesso em: {outputFilePath}");
         }
     }
 }

@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PDFToHTMLConverter")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+03265e6be4d980c9c09119db488ab2cd9978040a")]
 [assembly: System.Reflection.AssemblyProductAttribute("PDFToHTMLConverter")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PDFToHTMLConverter")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
